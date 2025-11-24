@@ -1,7 +1,10 @@
 import feedparser
 import requests
+import os
+import json
 from datetime import datetime
 from typing import List, Dict, Any
+from llm_processor import BatchLLMProcessor, save_interpretation_cache, load_interpretation_cache
 
 
 def fetch_todays_arxiv_papers(category: str = "hep-ph") -> List[Dict[str, Any]]:
@@ -170,6 +173,23 @@ def save_papers_to_markdown(papers: List[Dict[str, Any]], category: str, date: s
             markdown_content += f"**作者**: {', '.join(paper['authors'])}\n\n"
             markdown_content += f"**PDF链接**: [{paper['pdf_url']}]({paper['pdf_url']})\n\n"
             markdown_content += f"**摘要**: {paper['abstract']}\n\n"
+            
+            # 添加LLM解读内容
+            if "llm_interpretation" in paper:
+                interpretation = paper["llm_interpretation"]
+                
+                # 中文翻译
+                markdown_content += "### 中文翻译\n\n"
+                markdown_content += f"**标题**: {interpretation['chinese_translation']['title']}\n\n"
+                markdown_content += f"**摘要**: {interpretation['chinese_translation']['abstract']}\n\n"
+                
+                # 关键术语解释
+                if interpretation['key_terms']:
+                    markdown_content += "### 关键术语解释\n\n"
+                    for term in interpretation['key_terms']:
+                        markdown_content += f"**{term['term']}** ({term['chinese']})\n\n"
+                        markdown_content += f"{term['explanation']}\n\n"
+            
             markdown_content += "---\n\n"
     else:
         markdown_content += "今天没有找到新的论文\n"
@@ -181,8 +201,14 @@ def save_papers_to_markdown(papers: List[Dict[str, Any]], category: str, date: s
     print(f"已保存到: {file_path}")
 
 
-def main():
-    """主函数"""
+def main(enable_llm: bool = False, max_papers_per_category: int = 5):
+    """
+    主函数
+    
+    Args:
+        enable_llm: 是否启用LLM解读
+        max_papers_per_category: 每个类别处理的最大论文数量
+    """
     from datetime import datetime
     
     # 定义要抓取的类别
@@ -191,8 +217,22 @@ def main():
     
     print(f"开始抓取arXiv今日({today})发布的论文...")
     print(f"目标类别: {', '.join(categories)}")
+    print(f"LLM解读: {'启用' if enable_llm else '禁用'}")
+    if enable_llm:
+        print(f"每个类别最大处理论文数: {max_papers_per_category}")
     
     all_results = {}
+    
+    # 初始化LLM处理器
+    llm_processor = None
+    if enable_llm:
+        try:
+            llm_processor = BatchLLMProcessor()
+            print("LLM处理器初始化成功")
+        except Exception as e:
+            print(f"LLM处理器初始化失败: {e}")
+            print("将继续处理但不使用LLM解读")
+            enable_llm = False
     
     for category in categories:
         print(f"\n正在处理 {category} 类别...")
@@ -202,6 +242,17 @@ def main():
             today_papers = fetch_todays_arxiv_papers(category)
             
             print(f"  {category}: 找到 {len(today_papers)} 篇论文")
+            
+            # 如果启用LLM且论文数量超过限制，则限制处理数量
+            if enable_llm and len(today_papers) > max_papers_per_category:
+                print(f"  {category}: 限制处理前 {max_papers_per_category} 篇论文")
+                today_papers = today_papers[:max_papers_per_category]
+            
+            # 使用LLM处理论文
+            if enable_llm and llm_processor and today_papers:
+                print(f"  {category}: 开始LLM解读...")
+                today_papers = llm_processor.process_papers(today_papers)
+                print(f"  {category}: LLM解读完成")
             
             # 保存为Markdown文件
             save_papers_to_markdown(today_papers, category, today)
@@ -221,5 +272,28 @@ def main():
     return all_results
 
 
+def main_with_llm():
+    """启用LLM解读的主函数"""
+    return main(enable_llm=True, max_papers_per_category=3)
+
+
+def main_without_llm():
+    """禁用LLM解读的主函数"""
+    return main(enable_llm=False)
+
+
 if __name__ == "__main__":
-    main()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="arXiv论文抓取工具")
+    parser.add_argument("--llm", action="store_true", help="启用LLM解读")
+    parser.add_argument("--max-papers", type=int, default=3, help="每个类别处理的最大论文数量（仅当启用LLM时有效）")
+    
+    args = parser.parse_args()
+    
+    if args.llm:
+        print("启用LLM解读模式")
+        main(enable_llm=True, max_papers_per_category=args.max_papers)
+    else:
+        print("使用普通模式（无LLM解读）")
+        main(enable_llm=False)
