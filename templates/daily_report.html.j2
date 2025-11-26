@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <title>今日科学研究趋势 - {{ date_display }}</title>
+  <style>
+    body { font-family: "SF Pro", "Segoe UI", sans-serif; color: #222; line-height: 1.6; margin: 2rem auto; max-width: 900px; }
+    h1, h2 { color: #0a5; }
+    section { margin-bottom: 2rem; }
+    .cluster { border-left: 4px solid #0a5; padding-left: 1rem; margin-bottom: 1.5rem; }
+    .divider { border-top: 1px solid #ddd; margin: 2rem 0; }
+    ul { padding-left: 1.2rem; }
+  </style>
+</head>
+<body>
+  <h1>🌏 今日科学研究趋势摘要（{{ date_display }}）</h1>
+
+  <section>
+    <h2>1. 今日总体概览</h2>
+    <ul>
+      <li>总论文数：{{ overview.total_papers }}</li>
+      <li>主要增长领域：{{ overview.major_growth_fields | join(" / ") if overview.major_growth_fields else "待观察" }}</li>
+      <li>新出现的主题簇：{{ overview.new_clusters | join(", ") if overview.new_clusters else "无" }}</li>
+    </ul>
+  </section>
+
+  <div class="divider"></div>
+
+  <section>
+    <h2>2. 今日热点主题（Hot Topics）</h2>
+    {% for topic in overview.hot_topics %}
+    <div class="cluster">
+      <h3>{{ topic.theme or topic.cluster }}（{{ topic.size }} 篇）</h3>
+      <p>关键术语：{{ topic.keywords | join(", ") if topic.keywords else "未提供" }}</p>
+      <small>Cluster ID: {{ topic.cluster }}</small>
+    </div>
+    {% endfor %}
+  </section>
+
+  <div class="divider"></div>
+
+  <section>
+    <h2>3. 新兴主题（Emerging Trends）</h2>
+    {% if overview.emerging_topics %}
+      {% for trend in overview.emerging_topics %}
+      <div class="cluster">
+        <h3>{{ trend.theme or trend.cluster }}</h3>
+        <p>增长率：{{ "%.1f"|format(trend.growth_rate * 100) }}%</p>
+        <p>规模变化：{{ trend.size_yesterday }} → {{ trend.size_today }}</p>
+      </div>
+      {% endfor %}
+    {% else %}
+      <p>暂无可识别的新兴主题。</p>
+    {% endif %}
+  </section>
+
+  <div class="divider"></div>
+
+  <section>
+    <h2>4. 跨领域趋势（Domain Insights）</h2>
+    {% for domain_key, info in overview.domain_insights.items() %}
+    <div class="cluster">
+      <h3>{{ info.display_name }}</h3>
+      <p>主要方向：{{ info.hot_focus or "未提供" }}</p>
+      <p>新趋势：{{ info.trend_note }}</p>
+      <p>代表簇：{{ info.representative_cluster }}</p>
+      <p>关键词：{{ info.keywords | join(", ") if info.keywords else "未提供" }}</p>
+    </div>
+    {% endfor %}
+  </section>
+
+  <div class="divider"></div>
+
+  <section>
+    <h2>5. 附录：全部主题簇列表（按规模排序）</h2>
+    {% for name, info in clusters_sorted %}
+    <div class="cluster">
+      <h3>{{ name }}（{{ info.size }} 篇）</h3>
+      <p>{{ info.summary }}</p>
+    </div>
+    {% endfor %}
+  </section>
+
+</body>
+</html>

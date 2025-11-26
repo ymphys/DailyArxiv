@@ -1,0 +1,48 @@
+# 🌏 今日科学研究趋势摘要（{{ date_display }}）
+
+## 1. 今日总体概览
+- 总论文数：{{ overview.total_papers }}
+- 主要增长领域：{{ overview.major_growth_fields | join(" / ") if overview.major_growth_fields else "待观察" }}
+- 新出现的主题簇：{{ overview.new_clusters | join(", ") if overview.new_clusters else "无" }}
+
+---
+
+## 2. 今日热点主题（Hot Topics）
+{% for topic in overview.hot_topics %}
+### {{ topic.theme or topic.cluster }}（{{ topic.size }} 篇）
+- 关键术语：{{ topic.keywords | join(", ") if topic.keywords else "未提供" }}
+- Cluster ID: {{ topic.cluster }}
+
+---
+{% endfor %}
+
+## 3. 新兴主题（Emerging Trends）
+{% if overview.emerging_topics %}
+{% for trend in overview.emerging_topics %}
+### {{ trend.theme or trend.cluster }}
+- 增长率：{{ "%.1f"|format(trend.growth_rate * 100) }}%
+- 规模变化：{{ trend.size_yesterday }} → {{ trend.size_today }}
+
+---
+{% endfor %}
+{% else %}
+暂无可识别的新兴主题。
+{% endif %}
+
+## 4. 跨领域趋势（Domain Insights）
+{% for domain_key, info in overview.domain_insights.items() %}
+### {{ info.display_name }}
+- 主要方向：{{ info.hot_focus or "未提供" }}
+- 新趋势：{{ info.trend_note }}
+- 代表簇：{{ info.representative_cluster }}
+- 关键词：{{ info.keywords | join(", ") if info.keywords else "未提供" }}
+{% endfor %}
+
+---
+
+## 5. 附录：全部主题簇列表（按规模排序）
+{% for name, info in clusters_sorted %}
+### {{ name }}（{{ info.size }} 篇）
+{{ info.summary }}
+{% if loop.index < clusters_sorted|length %}---{% endif %}
+{% endfor %}
