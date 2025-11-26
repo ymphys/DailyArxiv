@@ -4,7 +4,6 @@ import os
 import json
 from datetime import datetime
 from typing import List, Dict, Any
-from llm_processor import BatchLLMProcessor, save_interpretation_cache, load_interpretation_cache
 
 
 def fetch_todays_arxiv_papers(category: str = "hep-ph") -> List[Dict[str, Any]]:
@@ -223,17 +222,6 @@ def main(enable_llm: bool = False, max_papers_per_category: int = 5):
     
     all_results = {}
     
-    # 初始化LLM处理器
-    llm_processor = None
-    if enable_llm:
-        try:
-            llm_processor = BatchLLMProcessor()
-            print("LLM处理器初始化成功")
-        except Exception as e:
-            print(f"LLM处理器初始化失败: {e}")
-            print("将继续处理但不使用LLM解读")
-            enable_llm = False
-    
     for category in categories:
         print(f"\n正在处理 {category} 类别...")
         
@@ -242,17 +230,6 @@ def main(enable_llm: bool = False, max_papers_per_category: int = 5):
             today_papers = fetch_todays_arxiv_papers(category)
             
             print(f"  {category}: 找到 {len(today_papers)} 篇论文")
-            
-            # 如果启用LLM且论文数量超过限制，则限制处理数量
-            if enable_llm and len(today_papers) > max_papers_per_category:
-                print(f"  {category}: 限制处理前 {max_papers_per_category} 篇论文")
-                today_papers = today_papers[:max_papers_per_category]
-            
-            # 使用LLM处理论文
-            if enable_llm and llm_processor and today_papers:
-                print(f"  {category}: 开始LLM解读...")
-                today_papers = llm_processor.process_papers(today_papers)
-                print(f"  {category}: LLM解读完成")
             
             # 保存为Markdown文件
             save_papers_to_markdown(today_papers, category, today)
