@@ -1,5 +1,6 @@
 import argparse
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -13,25 +14,39 @@ MARKDOWN_TEMPLATE = "daily_report.md.j2"
 HTML_TEMPLATE = "daily_report.html.j2"
 
 
-def resolve_path(raw: Optional[str], date: str, prefix: str) -> Path:
+def sanitize_suffix(raw_suffix: Optional[str]) -> str:
+    if not raw_suffix:
+        return ""
+    sanitized = re.sub(r"[^a-zA-Z0-9._-]+", "-", raw_suffix.strip())
+    return sanitized.strip("-")
+
+
+def build_filename(prefix: str, date: str, suffix: str) -> str:
+    if suffix:
+        return f"{prefix}_{suffix}_{date}.json"
+    return f"{prefix}_{date}.json"
+
+
+def resolve_path(raw: Optional[str], date: str, prefix: str, suffix: str) -> Path:
     if raw:
         p = Path(raw)
         if p.is_dir():
-            return p / f"{prefix}_{date}.json"
+            return p / build_filename(prefix, date, suffix)
         return p
-    return DEFAULT_INPUT_DIR / f"{prefix}_{date}.json"
+    return DEFAULT_INPUT_DIR / build_filename(prefix, date, suffix)
 
 
-def resolve_output(raw: Optional[str], date: str, suffix: str) -> Path:
+def resolve_output(raw: Optional[str], date: str, suffix: str, format_suffix: str) -> Path:
+    name_suffix = f"_{suffix}" if suffix else ""
     if raw:
         p = Path(raw)
         if p.is_dir():
             p.mkdir(parents=True, exist_ok=True)
-            return p / f"report_{date}.{suffix}"
+            return p / f"report{name_suffix}_{date}.{format_suffix}"
         p.parent.mkdir(parents=True, exist_ok=True)
         return p
     DEFAULT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    return DEFAULT_OUTPUT_DIR / f"report_{date}.{suffix}"
+    return DEFAULT_OUTPUT_DIR / f"report{name_suffix}_{date}.{format_suffix}"
 
 
 def load_json(path: Path) -> dict:
@@ -102,6 +117,7 @@ def generate_reports(
     papers_path: Path,
     template_dir: Path,
     output_dir: Optional[str],
+    suffix: str,
 ) -> Dict[str, Path]:
     cluster_summaries = load_json(cluster_summaries_path)
     trend_report = load_json(trend_report_path)
@@ -114,8 +130,8 @@ def generate_reports(
     html_template = env.get_template(HTML_TEMPLATE)
 
     outputs = {}
-    outputs["markdown"] = render_template(markdown_template, context, resolve_output(output_dir, date, "md"))
-    outputs["html"] = render_template(html_template, context, resolve_output(output_dir, date, "html"))
+    outputs["markdown"] = render_template(markdown_template, context, resolve_output(output_dir, date, suffix, "md"))
+    outputs["html"] = render_template(html_template, context, resolve_output(output_dir, date, suffix, "html"))
     return outputs
 
 
@@ -127,6 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--papers", help="Path to arxiv_<date>.json.")
     parser.add_argument("--template-dir", default=str(DEFAULT_TEMPLATE_DIR), help="Directory containing Jinja2 templates.")
     parser.add_argument("--output", help="Output directory or exact file path (without extension).")
+    parser.add_argument("--suffix", help="Optional suffix used for locating input/output files.")
     return parser
 
 
@@ -134,9 +151,10 @@ def main(cli_args: Optional[Sequence[str]] = None) -> None:
     parser = build_parser()
     args = parser.parse_args(cli_args)
 
-    cluster_summaries_path = resolve_path(args.cluster_summaries, args.date, "cluster_summaries")
-    trend_report_path = resolve_path(args.trend_report, args.date, "trend_report")
-    papers_path = resolve_path(args.papers, args.date, "arxiv")
+    suffix = sanitize_suffix(args.suffix)
+    cluster_summaries_path = resolve_path(args.cluster_summaries, args.date, "cluster_summaries", suffix)
+    trend_report_path = resolve_path(args.trend_report, args.date, "trend_report", suffix)
+    papers_path = resolve_path(args.papers, args.date, "arxiv", suffix)
     template_dir = Path(args.template_dir)
 
     outputs = generate_reports(
@@ -146,6 +164,7 @@ def main(cli_args: Optional[Sequence[str]] = None) -> None:
         papers_path=papers_path,
         template_dir=template_dir,
         output_dir=args.output,
+        suffix=suffix,
     )
 
     for fmt, path in outputs.items():

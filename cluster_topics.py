@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import random
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -34,22 +35,33 @@ def set_global_seed(seed: int = RANDOM_SEED) -> None:
     np.random.seed(seed)
 
 
-def resolve_input_path(raw: Optional[str], date_str: str) -> Path:
+def sanitize_suffix(raw_suffix: Optional[str]) -> str:
+    if not raw_suffix:
+        return ""
+    sanitized = re.sub(r"[^a-zA-Z0-9._-]+", "-", raw_suffix.strip())
+    return sanitized.strip("-")
+
+
+def resolve_input_path(raw: Optional[str], date_str: str, suffix: str) -> Path:
     if raw:
         path = Path(raw)
         if path.is_dir():
-            return path / f"arxiv_{date_str}.json"
+            filename = f"arxiv_{suffix + '_' if suffix else ''}{date_str}.json"
+            return path / filename
         return path
-    return DEFAULT_INPUT_DIR / f"arxiv_{date_str}.json"
+    filename = f"arxiv_{suffix + '_' if suffix else ''}{date_str}.json"
+    return DEFAULT_INPUT_DIR / filename
 
 
-def resolve_output_path(raw: Optional[str], date_str: str) -> Path:
+def resolve_output_path(raw: Optional[str], date_str: str, suffix: str) -> Path:
     if raw:
         path = Path(raw)
         if path.is_dir():
-            return path / f"clusters_{date_str}.json"
+            filename = f"clusters_{suffix + '_' if suffix else ''}{date_str}.json"
+            return path / filename
         return path
-    return DEFAULT_OUTPUT_DIR / f"clusters_{date_str}.json"
+    filename = f"clusters_{suffix + '_' if suffix else ''}{date_str}.json"
+    return DEFAULT_OUTPUT_DIR / filename
 
 
 def load_papers(input_path: Path) -> List[Dict]:
@@ -213,8 +225,9 @@ def save_clusters(payload: Dict, output_path: Path) -> Path:
 
 
 def build_config(args: argparse.Namespace) -> ClusterConfig:
-    input_path = resolve_input_path(args.input_path, args.date)
-    output_path = resolve_output_path(args.output_path, args.date)
+    suffix = sanitize_suffix(args.suffix)
+    input_path = resolve_input_path(args.input_path, args.date, suffix)
+    output_path = resolve_output_path(args.output_path, args.date, suffix)
     model = args.model or (DEFAULT_OPENAI_MODEL if args.backend == "openai" else DEFAULT_HF_MODEL)
 
     return ClusterConfig(
@@ -271,6 +284,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-cluster-size", type=int, default=3, help="Minimum cluster size; smaller clusters become noise.")
     parser.add_argument("--device", help="Device for HuggingFace models (cpu/cuda/auto).")
     parser.add_argument("--force-kmeans", action="store_true", help="Use KMeans instead of HDBSCAN even if available.")
+    parser.add_argument("--suffix", help="Optional suffix for resolving default input/output filenames.")
     return parser
 
 

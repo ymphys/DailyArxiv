@@ -16,7 +16,7 @@ DEFAULT_OUTPUT_DIR = Path("data")
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_MAX_PAPERS = 50
 DEFAULT_CHUNK_SIZE = 30
-DEFAULT_MAX_WORKERS = 4
+DEFAULT_MAX_WORKERS = 16
 DEFAULT_TEMPERATURE = 0.3
 LLM_RETRIES = 3
 BACKOFF_SECONDS = 2.0
@@ -92,20 +92,34 @@ class LLMClient:
         raise last_err  # type: ignore[misc]
 
 
-def resolve_path(raw: Optional[str], default_dir: Path, basename: str) -> Path:
+def sanitize_suffix(raw_suffix: Optional[str]) -> str:
+    if not raw_suffix:
+        return ""
+    sanitized = re.sub(r"[^a-zA-Z0-9._-]+", "-", raw_suffix.strip())
+    return sanitized.strip("-")
+
+
+def default_basename(prefix: str, date_str: str, suffix: str) -> str:
+    if suffix:
+        return f"{prefix}_{suffix}_{date_str}.json"
+    return f"{prefix}_{date_str}.json"
+
+
+def resolve_path(raw: Optional[str], default_dir: Path, prefix: str, date_str: str, suffix: str) -> Path:
     if raw:
         path = Path(raw)
         if path.is_dir():
-            return path / basename
+            return path / default_basename(prefix, date_str, suffix)
         return path
-    return default_dir / basename
+    return default_dir / default_basename(prefix, date_str, suffix)
 
 
 def build_config(args: argparse.Namespace) -> SummaryConfig:
     date = args.date
-    papers_path = resolve_path(args.papers_path, DEFAULT_INPUT_DIR, f"arxiv_{date}.json")
-    clusters_path = resolve_path(args.clusters_path, DEFAULT_INPUT_DIR, f"clusters_{date}.json")
-    output_path = resolve_path(args.output_path, DEFAULT_OUTPUT_DIR, f"cluster_summaries_{date}.json")
+    suffix = sanitize_suffix(args.suffix)
+    papers_path = resolve_path(args.papers_path, DEFAULT_INPUT_DIR, "arxiv", date, suffix)
+    clusters_path = resolve_path(args.clusters_path, DEFAULT_INPUT_DIR, "clusters", date, suffix)
+    output_path = resolve_path(args.output_path, DEFAULT_OUTPUT_DIR, "cluster_summaries", date, suffix)
 
     return SummaryConfig(
         date=date,
@@ -249,6 +263,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE, help="Papers per LLM chunk.")
     parser.add_argument("--max-workers", type=int, default=DEFAULT_MAX_WORKERS, help="Parallel workers for API calls.")
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE, help="Sampling temperature.")
+    parser.add_argument("--suffix", help="Optional suffix for locating default files (e.g., category tag).")
     return parser
 
 

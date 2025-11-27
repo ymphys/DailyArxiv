@@ -1,0 +1,67 @@
+{
+  "date": "2025-11-26",
+  "hot_topics": [
+    {
+      "cluster": "cluster_1",
+      "size": 77,
+      "theme": "本主题簇涵盖了声纳成像、超材料设计、量子材料和流体动力学等多个前沿研究领域。",
+      "keywords": [
+        "声纳成像",
+        "超材料",
+        "量子材料",
+        "流体动力学",
+        "机器学习",
+        "非厄米物理",
+        "材料设计",
+        "生成模型"
+      ]
+    },
+    {
+      "cluster": "cluster_2",
+      "size": 4,
+      "theme": "随着粒子物理研究的不断深入，对加速器技术的需求日益增加。",
+      "keywords": [
+        "粒子加速器",
+        "PIP-II",
+        "有限元分析",
+        "信号多路复用",
+        "束流监测",
+        "高能物理"
+      ]
+    }
+  ],
+  "emerging_topics": [],
+  "domain_insights": {
+    "physics": {
+      "display_name": "Physics & High-Energy",
+      "top_clusters": [
+        {
+          "cluster": "cluster_1",
+          "size": 77,
+          "theme": "本主题簇涵盖了声纳成像、超材料设计、量子材料和流体动力学等多个前沿研究领域。"
+        },
+        {
+          "cluster": "cluster_2",
+          "size": 4,
+          "theme": "随着粒子物理研究的不断深入，对加速器技术的需求日益增加。"
+        }
+      ],
+      "representative_cluster": "cluster_1",
+      "representative_theme": "本主题簇涵盖了声纳成像、超材料设计、量子材料和流体动力学等多个前沿研究领域。",
+      "hot_focus": "本主题簇涵盖了声纳成像、超材料设计、量子材料和流体动力学等多个前沿研究领域。",
+      "keywords": [
+        "声纳成像",
+        "超材料",
+        "量子材料",
+        "流体动力学",
+        "机器学习",
+        "非厄米物理",
+        "材料设计",
+        "生成模型"
+      ],
+      "total_papers": 81,
+      "share": 1.0,
+      "trend_note": "缺少历史对比数据，暂无法评估环比趋势。"
+    }
+  }
+}

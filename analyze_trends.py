@@ -1,5 +1,6 @@
 import argparse
 import json
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -34,15 +35,30 @@ class TrendConfig:
     yesterday_summaries: Optional[Path]
     yesterday_papers: Optional[Path]
     output_path: Path
+    today_suffix: str
+    yesterday_suffix: str
 
 
-def resolve_path(raw: Optional[str], date: str, prefix: str) -> Path:
+def sanitize_suffix(raw_suffix: Optional[str]) -> str:
+    if not raw_suffix:
+        return ""
+    sanitized = re.sub(r"[^a-zA-Z0-9._-]+", "-", raw_suffix.strip())
+    return sanitized.strip("-")
+
+
+def build_filename(prefix: str, date: str, suffix: str) -> str:
+    if suffix:
+        return f"{prefix}_{suffix}_{date}.json"
+    return f"{prefix}_{date}.json"
+
+
+def resolve_path(raw: Optional[str], date: str, prefix: str, suffix: str) -> Path:
     if raw:
         p = Path(raw)
         if p.is_dir():
-            return p / f"{prefix}_{date}.json"
+            return p / build_filename(prefix, date, suffix)
         return p
-    return DEFAULT_INPUT_DIR / f"{prefix}_{date}.json"
+    return DEFAULT_INPUT_DIR / build_filename(prefix, date, suffix)
 
 
 def load_json(path: Optional[Path]) -> Optional[dict]:
@@ -257,15 +273,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--yesterday-clusters", help="Path to yesterday's clusters JSON.")
     parser.add_argument("--yesterday-summaries", help="Path to yesterday's cluster summaries JSON.")
     parser.add_argument("--yesterday-papers", help="Path to yesterday's papers JSON.")
+    parser.add_argument("--suffix", help="Suffix used for today's default filenames.")
+    parser.add_argument("--yesterday-suffix", help="Suffix used for yesterday's default filenames (defaults to today's suffix).")
     parser.add_argument("--output-path", help="Output file path for trend report.")
     return parser
 
 
 def build_config(args: argparse.Namespace) -> TrendConfig:
     date = args.date
-    today_clusters = resolve_path(args.today_clusters, date, "clusters")
-    today_summaries = resolve_path(args.today_summaries, date, "cluster_summaries")
-    today_papers = resolve_path(args.today_papers, date, "arxiv")
+    today_suffix = sanitize_suffix(args.suffix)
+    yesterday_suffix = sanitize_suffix(args.yesterday_suffix) if args.yesterday_suffix else today_suffix
+
+    today_clusters = resolve_path(args.today_clusters, date, "clusters", today_suffix)
+    today_summaries = resolve_path(args.today_summaries, date, "cluster_summaries", today_suffix)
+    today_papers = resolve_path(args.today_papers, date, "arxiv", today_suffix)
 
     if args.yesterday_date:
         yesterday_date = args.yesterday_date
@@ -273,11 +294,11 @@ def build_config(args: argparse.Namespace) -> TrendConfig:
         date_obj = datetime.strptime(date, "%Y-%m-%d")
         yesterday_date = (date_obj - timedelta(days=1)).strftime("%Y-%m-%d")
 
-    yesterday_clusters = Path(args.yesterday_clusters) if args.yesterday_clusters else resolve_path(None, yesterday_date, "clusters")
-    yesterday_summaries = Path(args.yesterday_summaries) if args.yesterday_summaries else resolve_path(None, yesterday_date, "cluster_summaries")
-    yesterday_papers = Path(args.yesterday_papers) if args.yesterday_papers else resolve_path(None, yesterday_date, "arxiv")
+    yesterday_clusters = resolve_path(args.yesterday_clusters, yesterday_date, "clusters", yesterday_suffix)
+    yesterday_summaries = resolve_path(args.yesterday_summaries, yesterday_date, "cluster_summaries", yesterday_suffix)
+    yesterday_papers = resolve_path(args.yesterday_papers, yesterday_date, "arxiv", yesterday_suffix)
 
-    output_path = resolve_path(args.output_path, date, "trend_report")
+    output_path = resolve_path(args.output_path, date, "trend_report", today_suffix)
     return TrendConfig(
         date=date,
         today_clusters=today_clusters,
@@ -288,6 +309,8 @@ def build_config(args: argparse.Namespace) -> TrendConfig:
         yesterday_summaries=yesterday_summaries,
         yesterday_papers=yesterday_papers,
         output_path=output_path,
+        today_suffix=today_suffix,
+        yesterday_suffix=yesterday_suffix,
     )
 
 

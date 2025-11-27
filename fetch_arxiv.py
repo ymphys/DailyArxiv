@@ -48,6 +48,7 @@ class FetchConfig:
     output_path: Path
     retries: int
     backoff: float
+    suffix: str
 
 
 def parse_date_arg(date_arg: str) -> date:
@@ -165,6 +166,13 @@ def save_results(results: Iterable[dict], save_path: Path) -> Path:
     return save_path
 
 
+def sanitize_suffix(raw_suffix: Optional[str]) -> str:
+    if not raw_suffix:
+        return ""
+    sanitized = re.sub(r"[^a-zA-Z0-9._-]+", "-", raw_suffix.strip())
+    return sanitized.strip("-")
+
+
 def parse_categories(raw: Optional[Sequence[str]]) -> List[str]:
     if not raw or raw == ["all"]:
         return DEFAULT_CATEGORIES
@@ -172,17 +180,23 @@ def parse_categories(raw: Optional[Sequence[str]]) -> List[str]:
     return cleaned or DEFAULT_CATEGORIES
 
 
-def resolve_output_path(raw_path: str, target_date: date) -> Path:
+def resolve_output_path(raw_path: str, target_date: date, suffix: str) -> Path:
     path_obj = Path(raw_path)
     if path_obj.suffix.lower() == ".json":
         return path_obj
-    return path_obj / f"arxiv_{target_date.isoformat()}.json"
+    filename = f"arxiv_{target_date.isoformat()}.json"
+    if suffix:
+        filename = f"arxiv_{suffix}_{target_date.isoformat()}.json"
+    return path_obj / filename
 
 
 def build_config(args: argparse.Namespace) -> FetchConfig:
     categories = parse_categories(args.categories)
     target_date = parse_date_arg(args.date)
-    output_path = resolve_output_path(args.save_path, target_date)
+    suffix = sanitize_suffix(args.suffix)
+    if not suffix and args.categories:
+        suffix = sanitize_suffix("-".join(args.categories))
+    output_path = resolve_output_path(args.save_path, target_date, suffix)
 
     return FetchConfig(
         categories=categories,
@@ -191,6 +205,7 @@ def build_config(args: argparse.Namespace) -> FetchConfig:
         output_path=output_path,
         retries=args.retries,
         backoff=args.backoff,
+        suffix=suffix,
     )
 
 
@@ -230,6 +245,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--retries", type=int, default=3, help="Retry attempts for network errors.")
     parser.add_argument("--backoff", type=float, default=2.0, help="Backoff multiplier between retries in seconds.")
+    parser.add_argument("--suffix", help="Optional suffix inserted into generated filenames (e.g., category tag).")
     return parser
 
 
