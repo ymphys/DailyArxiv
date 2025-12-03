@@ -27,6 +27,7 @@ DEFAULT_CATEGORIES = [
     "physics",
     "quant-ph",
     "math",
+    "cs",
     "q-bio",
     "q-fin",
     "stat",
