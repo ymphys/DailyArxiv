@@ -9,6 +9,8 @@
 - 🤖 集成DeepSeek LLM解读功能（可选）
 - 📝 生成包含中文翻译和术语解释的Markdown文件
 - 🗂️ 按类别分类保存论文
+- 🧠 先进的聚类模块：强预处理、OpenAI/HF嵌入、UMAP降低维度、HDBSCAN+噪声再聚类、LLM自动总结
+- 🧾 输出 JSON 聚类报告包含主题关键词、代表论文与剩余噪声信息
 
 ## 安装
 
@@ -30,279 +32,88 @@ export DEEPSEEK_API_KEY=你的DeepSeek_API密钥
 
 ## 使用方法
 
-### 基本使用（无LLM解读）
+### 主流程（`main.py`）
 ```bash
-python main.py
+uv run main.py --date 2025-12-02
 ```
+此脚本串联 `fetch_arxiv.py` → `cluster_topics.py` → `summarize_clusters.py` → `analyze_trends.py` → `generate_report.py`。关键参数示例：
 
-### 启用LLM解读
+| 参数 | 说明 |
+|------|------|
+| `--date` | 目标日期（默认当天）。 |
+| `--categories` | 传递给抓取阶段的类别列表。 |
+| `--run-suffix` | 追加到自动生成文件名的后缀（如 `hep-ph`）。 |
+| `--skip-fetch/--skip-cluster/--skip-summary/--skip-trend/--skip-report` | 跳过某个阶段。 |
+| `--embed-*` | 传递给聚类阶段的参数（`--embed-backend`、`--embed-model`、`--embed-batch-size`、`--embed-device` 等）。 |
+| `--summary-*` | 控制聚类摘要的 LLM 设置（`--summary-model`、`--summary-max-papers` 等）。 |
+
+### 单独运行抓取（`fetch_arxiv.py`）
 ```bash
-python main.py --llm
+uv run fetch_arxiv.py --date 2025-12-02 --categories cs.CL stat.ML --max-results 1500
 ```
+输出默认写入 `data/arxiv_<date>.json`；可通过 `--save-path`、`--suffix` 自定义。常见选项：
 
-### 自定义LLM处理论文数量
+| 参数 | 说明 |
+|------|------|
+| `--date` | 支持 `today`/`yesterday` 或 `YYYY-MM-DD`。 |
+| `--categories` | 一组 arXiv 类别；默认覆盖全部列表。 |
+| `--max-results` | 限制总记录数。 |
+| `--save-path` | 指定输出文件或目录。 |
+| `--retries` / `--backoff` | 网络重试次数与退避策略。 |
+| `--suffix` | 自动在文件名中插入后缀（如 `cs-cluster`）。 |
+
+### 单独运行聚类（`cluster_topics.py`）
 ```bash
-python main.py --llm --max-papers 5
+uv run cluster_topics.py --date 2025-12-02 --backend openai --stopword-filter --summarizer-model gpt-4o-mini
 ```
+该命令读取 `data/arxiv_<date>.json`，经过预处理、嵌入缓存、UMAP + HDBSCAN（含噪声救援）、LLM摘要，最终生成 `data/clusters_<date>.json`，JSON 中包含 `clusters`/`metadata`/`noise` 的完整结构。
 
-## 输出文件
-
-论文将按类别保存在 `feed/` 目录下，例如：
-- `feed/hep-ph/2025-11-24-arxiv.md`
-- `feed/astro-ph/2025-11-24-arxiv.md`
-
-### 输出格式示例
-
-```markdown
-# arXiv hep-ph 今日论文 (2025-11-24)
-
-共找到 39 篇论文
-
-## 1. A new suite of Lund-tree observables to resolve jets
-
-**作者**: Melissa van Beekveld, Luca Buonocore, Silvia Ferrario Ravasio, Pier Francesco Monni, Alba Soto-Ontoso, Gregory Soyez
-
-**PDF链接**: [https://arxiv.org/pdf/2511.16723.pdf](https://arxiv.org/pdf/2511.16723.pdf)
-
-**摘要**: We introduce a class of collider observables, named Lund-Tree Shapes (LTS)...
-
-### 中文翻译
-
-**标题**: 一套新的Lund树可观测量用于解析喷注
-
-**摘要**: 我们引入了一类对撞机可观测量，称为Lund树形状（LTS）...
-
-### 关键术语解释
-
-**Lund jet plane** (Lund喷注平面)
-
-Lund喷注平面是一种用于描述量子色动力学（QCD）辐射模式的相空间表示方法...
-
----
-```
-
-## 支持的arXiv类别
-
-- astro-ph (天体物理学)
-- cond-mat (凝聚态物理)
-- gr-qc (广义相对论与量子宇宙学)
-- hep-ph (高能物理-现象学)
-- hep-th (高能物理-理论)
-- math-ph (数学物理)
-- quant-ph (量子物理)
-- 等等...
-
-## LLM解读功能设置指南
-
-### 概述
-
-DailyArxiv集成了DeepSeek LLM解读功能，可以为每篇论文自动生成：
-- 📖 标题和摘要的中文翻译
-- 🔬 关键专业术语的解释（适合博士水平）
-
-### 快速开始
-
-#### 1. 获取DeepSeek API密钥
-
-1. 访问 [DeepSeek Platform](https://platform.deepseek.com/)
-2. 注册或登录账户
-3. 进入API密钥管理页面
-4. 创建新的API密钥
-5. 复制生成的密钥
-
-#### 2. 配置环境变量
-
-```bash
-export DEEPSEEK_API_KEY=你的DeepSeek_API密钥
-```
-
-#### 3. 测试LLM功能
-
-```bash
-python test_llm.py
-```
-
-如果看到成功消息，说明配置正确。
-
-#### 4. 使用LLM解读功能
-
-```bash
-# 启用LLM解读，每个类别处理3篇论文（默认）
-python main.py --llm
-
-# 启用LLM解读，每个类别处理5篇论文
-python main.py --llm --max-papers 5
-```
-
-### 功能详解
-
-#### 中文翻译
-
-LLM会为每篇论文生成：
-- **标题翻译**：准确的专业翻译
-- **摘要翻译**：流畅的中文摘要，保持专业术语的准确性
-
-#### 关键术语解释
-
-系统会自动识别摘要中最重要、最专业的3-5个术语，并为每个术语提供：
-- **英文术语**：原始术语名称
-- **中文翻译**：术语的中文对应
-- **详细解释**：适合博士水平的深入解释
-
-### 配置选项
-
-#### 环境变量
-
-| 变量名 | 描述 | 默认值 |
-|--------|------|--------|
-| `DEEPSEEK_API_KEY` | DeepSeek API密钥 | 必需 |
-| `OPENAI_MODEL` | 使用的模型 | `deepseek-chat` |
-| `OPENAI_BASE_URL` | API基础URL | `https://api.deepseek.com/v1` |
-
-#### 命令行参数
-
-| 参数 | 描述 | 默认值 |
-|------|------|--------|
-| `--llm` | 启用LLM解读 | `False` |
-| `--max-papers` | 每个类别最大处理数量 | `3` |
-
-### 故障排除
-
-#### 常见问题
-
-1. **API密钥错误**
-   ```
-   Error: Incorrect API key provided
-   ```
-   解决方案：检查API密钥是否正确，是否有足够的余额
-
-2. **网络连接问题**
-   ```
-   Error: Connection error
-   ```
-   解决方案：检查网络连接，或尝试使用代理
-
-3. **速率限制**
-   ```
-   Error: Rate limit exceeded
-   ```
-   解决方案：减少处理数量，或添加延迟
-
-4. **Token限制**
-   ```
-   Error: Context length exceeded
-   ```
-   解决方案：论文摘要过长，系统会自动处理
-
-### 高级用法
-
-#### 自定义提示词
-
-修改 `llm_processor.py` 中的 `_build_prompt` 方法来自定义提示词：
-
-```python
-def _build_prompt(self, title: str, abstract: str) -> str:
-    # 自定义你的提示词
-    return f"""
-    请为以下论文生成专业的中文解读：
-    标题：{title}
-    摘要：{abstract}
-    
-    ...
-    """
-```
-
-#### 使用其他模型
-
-支持所有OpenAI兼容的模型：
-```python
-processor = LLMProcessor(model="deepseek-reasoner")
-```
+| 参数 | 说明 |
+|------|------|
+| `--date` | 指定聚类数据的日期。 |
+| `--backend` / `--model` | 选择 OpenAI (`text-embedding-3-large`) 或 HuggingFace fallback。 |
+| `--batch-size` | OpenAI 批量请求大小。 |
+| `--device` | HuggingFace 设备（`cpu`/`cuda`/`auto`）。 |
+| `--cache-dir` | SQLite 缓存目录（默认为 `.cache/embeddings.db`）。 |
+| `--stopword-filter` | 去除简单停用词。 |
+| `--summarizer-model` | LLM 模型，默认 `gpt-4o-mini`。 |
+| `--suffix` | 用于区分输出文件名（`clusters_<suffix>_<date>.json`）。 |
 
 ## 项目结构
 
 ```
 DailyArxiv/
-├── main.py              # 主程序
-├── llm_processor.py     # LLM处理模块
-├── test_llm.py         # LLM功能测试脚本
-├── pyproject.toml       # 项目配置和依赖
-├── README.md           # 项目说明
-└── feed/               # 论文输出目录
-    ├── hep-ph/
-    ├── astro-ph/
-    └── ...
+├── main.py               # 全流程编排：fetch → cluster → summarize → trends → report
+├── fetch_arxiv.py        # Phase 1：抓取 arXiv 数据
+├── cluster_topics.py     # Phase 2：预处理、嵌入、UMAP+HDBSCAN、噪声救援与 LLM 聚类总结
+├── preprocess.py         # 预处理文本（去 LaTeX、停用词等）
+├── embed.py              # 嵌入实现（OpenAI + HF + 缓存）
+├── cluster.py            # 聚类/UMAP/HDBSCAN 核心逻辑
+├── summarize.py          # LLM 聚类摘要
+├── summarize_clusters.py # Phase 3：汇总聚类成 Markdown/JSON 报告
+├── analyze_trends.py     # Phase 4：趋势分析
+├── generate_report.py    # Phase 5：生成日报/邮件内容
+├── data/                 # 抓取与聚类数据（arxiv_xxx.json, clusters_xxx.json）
+├── reports/              # 输出的 Markdown 报告
+├── templates/            # 报告/摘要模版
+├── pyproject.toml        # 依赖与配置
+├── README.md             # 项目文档
+└── uv.lock               # 依赖锁
 ```
 
-## 开发
+## 开发路线图
 
-### 添加新的arXiv类别
+1. **已完成**
+   - 完成 `fetch_arxiv.py` 模块：按类别抓取 arXiv 新发论文、清洗可选字段并保存 JSON。
+   - 完成 `cluster_topics.py` + 相关工具（`preprocess.py`、`embed.py`、`cluster.py`、`summarize.py`）：实现强预处理、UMAP 降维、HDBSCAN 聚类、噪声救援及 LLM 主题标签/关键词/描述输出。
 
-在 `main.py` 的 `categories` 列表中添加新的类别代码。
+2. **后续计划**
+   - 为聚类结果生成更详细的“Cluster Summary Report”，聚合关键词与代表论文。
+   - 添加 UMAP 可视化输出（静态图或交互式）以辅助人工审核聚类质量。
+   - 在 summary 阶段引入 subcluster analysis，进一步细化每个主题内部的子主题。
+   - 完善 `generate_report.py`，输出日报系列（Markdown/HTML）并支持自定义模版。
+   - 加入邮件发送模块，将日报推送给订阅用户（可能通过 SMTP/API）。
 
-### 自定义LLM提示词
-
-修改 `llm_processor.py` 中的 `_build_prompt` 方法来自定义提示词。
-
-## Phase 2：LLM解读模块整合完成
-
-### 任务完成情况
-
-已成功为DailyArxiv项目整合LLM解读模块，为每篇论文增加了两个新字段：
-
-1. **中文翻译**（标题 + 摘要）
-2. **专业术语解释**（适合博士水平）
-
-### 主要功能特性
-
-#### 1. LLM解读功能
-- 使用DeepSeek模型生成专业解读
-- 自动识别关键术语并提供深入解释
-- 生成准确流畅的中文翻译
-
-#### 2. 批量处理
-- 支持多篇论文批量处理
-- 可配置每个类别的处理数量
-- 自动延迟避免API限制
-
-#### 3. 错误处理
-- 完善的异常处理机制
-- API失败时的降级处理
-- 详细的错误日志
-
-#### 4. 配置灵活
-- 支持命令行参数
-- 环境变量配置
-- 可自定义模型和参数
-
-### 技术实现
-
-#### 架构设计
-- 模块化设计，LLM功能独立封装
-- 与现有代码无缝集成
-- 支持扩展其他LLM提供商
-
-#### 提示词工程
-使用优化的提示词：
-```
-请阅读以下论文内容：
-标题：{title}
-摘要：{abstract}
-
-请生成如下内容：
-1. 标题与摘要的中文翻译
-2. 摘要中的关键术语列表，并解释每个术语（适合博士水平）
-```
-
-### 完成标准
-
-- [x] 实现LLM解读核心功能
-- [x] 集成到主程序
-- [x] 支持命令行参数
-- [x] 完善错误处理
-- [x] 创建使用文档
-- [x] 编写测试脚本
-- [x] 更新项目文档
 
 ## 许可证
 

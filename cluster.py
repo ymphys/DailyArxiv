@@ -63,10 +63,9 @@ def _run_hdbscan(embeddings: np.ndarray, min_cluster_size: int) -> (np.ndarray, 
         metric="euclidean",
         cluster_selection_method="leaf",
         prediction_data=True,
-        probability=True,
     )
     labels = clusterer.fit_predict(embeddings)
-    probabilities = clusterer.probabilities_
+    probabilities = getattr(clusterer, "probabilities_", np.ones(len(embeddings)))
     return labels, probabilities
 
 
