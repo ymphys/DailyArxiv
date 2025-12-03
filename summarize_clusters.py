@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -8,6 +9,7 @@ from pathlib import Path
 import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from logging_setup import configure_logging
 from openai import OpenAI
 
 DEFAULT_DATE = "today"
@@ -20,6 +22,8 @@ DEFAULT_MAX_WORKERS = 16
 DEFAULT_TEMPERATURE = 0.3
 LLM_RETRIES = 3
 BACKOFF_SECONDS = 2.0
+
+LOGGER = logging.getLogger("dailyarxiv.summarize_clusters")
 
 SYSTEM_PROMPT = """你是资深科学编辑，需要对论文主题簇进行解读。务必使用简体中文，并输出有效的 JSON。"""
 
@@ -185,9 +189,13 @@ def summarize_cluster(
     config: SummaryConfig,
     llm: LLMClient,
 ) -> Tuple[str, Dict]:
-    paper_ids = cluster_info.get("paper_ids", [])
-    selected_ids = paper_ids[: config.max_papers]
-    papers = [paper_lookup[pid] for pid in selected_ids if pid in paper_lookup]
+    explicit_papers = cluster_info.get("papers") or []
+    if explicit_papers:
+        papers = explicit_papers[: config.max_papers]
+    else:
+        paper_ids = cluster_info.get("paper_ids", [])
+        selected_ids = paper_ids[: config.max_papers]
+        papers = [paper_lookup[pid] for pid in selected_ids if pid in paper_lookup]
 
     if not papers:
         return cluster_name, {
@@ -228,17 +236,20 @@ def summarize_cluster(
 def process_clusters(config: SummaryConfig) -> Dict[str, Dict]:
     papers = load_json(config.papers_path)
     clusters_payload = load_json(config.clusters_path)
-    clusters = clusters_payload.get("clusters", {})
+    clusters = clusters_payload.get("clusters", [])
 
     paper_lookup = {paper["id"]: paper for paper in papers}
     llm = LLMClient(config.model, config.temperature)
 
     summaries: Dict[str, Dict] = {}
     with ThreadPoolExecutor(max_workers=config.max_workers) as executor:
-        futures = [
-            executor.submit(summarize_cluster, name, info, paper_lookup, config, llm)
-            for name, info in clusters.items()
-        ]
+        futures = []
+        for idx, info in enumerate(clusters):
+            cluster_id = info.get("cluster_id")
+            name = f"cluster_{cluster_id}" if cluster_id is not None else f"cluster_{idx}"
+            futures.append(
+                executor.submit(summarize_cluster, name, info, paper_lookup, config, llm)
+            )
         for future in as_completed(futures):
             name, summary = future.result()
             summaries[name] = summary
@@ -271,6 +282,11 @@ def main(cli_args: Optional[Sequence[str]] = None) -> None:
     parser = build_parser()
     args = parser.parse_args(cli_args)
     config = build_config(args)
+    configure_logging()
+
+    LOGGER.info("Loading papers from %s", config.papers_path)
+    LOGGER.info("Reading clusters from %s", config.clusters_path)
+    LOGGER.info("Using model %s with up to %d parallel workers.", config.model, config.max_workers)
 
     print(f"Loading papers from {config.papers_path}")
     print(f"Reading clusters from {config.clusters_path}")
@@ -279,6 +295,7 @@ def main(cli_args: Optional[Sequence[str]] = None) -> None:
     summaries = process_clusters(config)
     output_path = save_summaries(summaries, config.output_path)
 
+    LOGGER.info("Saved cluster summaries to %s", output_path)
     print(f"Saved cluster summaries to {output_path}")
 
 

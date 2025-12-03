@@ -7,7 +7,6 @@ import argparse
 import json
 import logging
 import re
-import sys
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
@@ -16,6 +15,7 @@ from tqdm import tqdm
 
 from cluster import ClusterConfig, ClusterGroup, ClusterResult, perform_clustering
 from embed import DEFAULT_FALLBACK_MODEL, DEFAULT_CACHE, EmbeddingConfig, embed_texts
+from logging_setup import configure_logging
 from preprocess import preprocess_text
 from summarize import SummarizerConfig, summarize_cluster
 
@@ -24,12 +24,90 @@ DEFAULT_OUTPUT_DIR = Path("data")
 DEFAULT_BACKEND = "openai"
 DEFAULT_SUMMARY_MODEL = "gpt-4o-mini"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(message)s",
-    stream=sys.stdout,
-)
 LOGGER = logging.getLogger("dailyarxiv.cluster_topics")
+
+
+def _compute_umap_projection(embeddings: np.ndarray, n_components: int) -> Optional[np.ndarray]:
+    try:
+        import umap
+    except ImportError as exc:
+        LOGGER.warning("umap-learn not installed (%s); skipping %dD projection.", exc, n_components)
+        return None
+
+    reducer = umap.UMAP(
+        n_neighbors=30,
+        min_dist=0.1,
+        n_components=n_components,
+        metric="cosine",
+        random_state=42,
+    )
+    return reducer.fit_transform(embeddings)
+
+
+def _assign_colors(labels: np.ndarray, plt_module):
+    base = plt_module.cm.get_cmap("tab20")
+    mapping = {}
+    color_idx = 0
+    mapping[-1] = (0.5, 0.5, 0.5, 1.0)
+    for label in sorted(set(labels)):
+        if label == -1:
+            continue
+        mapping[label] = base(color_idx % base.N)
+        color_idx += 1
+    return np.array([mapping[label] for label in labels], dtype=float)
+
+
+def _plot_umap_projection(
+    projection: np.ndarray,
+    labels: np.ndarray,
+    save_path: Path,
+    dims: int,
+) -> bool:
+    try:
+        import matplotlib.pyplot as plt  # type: ignore[import]
+        from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  pylint: disable=unused-import
+    except ImportError as exc:
+        LOGGER.warning("matplotlib not available (%s); skipping UMAP plots.", exc)
+        return False
+
+    colors = _assign_colors(labels, plt)
+    fig = plt.figure(figsize=(8, 6))
+    if dims == 2:
+        ax = fig.add_subplot(111)
+        ax.scatter(projection[:, 0], projection[:, 1], c=colors, s=5, alpha=0.8)
+        ax.set_xlabel("UMAP 1")
+        ax.set_ylabel("UMAP 2")
+    else:
+        ax = fig.add_subplot(111, projection="3d")
+        ax.scatter(projection[:, 0], projection[:, 1], projection[:, 2], c=colors, s=5, alpha=0.8)
+        ax.set_xlabel("UMAP 1")
+        ax.set_ylabel("UMAP 2")
+        ax.set_zlabel("UMAP 3")
+
+    ax.set_title(f"UMAP {dims}D Clusters")
+    fig.tight_layout()
+    try:
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=150)
+        LOGGER.info("Saved UMAP %dD plot to %s", dims, save_path)
+    except Exception as exc:
+        LOGGER.warning("Failed to save UMAP %dD plot (%s); skipping.", dims, exc)
+        plt.close(fig)
+        return False
+    plt.close(fig)
+    return True
+
+
+def _maybe_plot_umap(embeddings: np.ndarray, labels: np.ndarray, output_dir: Path) -> None:
+    if embeddings.size == 0:
+        LOGGER.warning("No embeddings available for UMAP plotting.")
+        return
+
+    for dims, filename in ((2, "umap_2d.png"), (3, "umap_3d.png")):
+        projection = _compute_umap_projection(embeddings, dims)
+        if projection is None:
+            continue
+        _plot_umap_projection(projection, labels, output_dir / filename, dims)
 
 
 def sanitize_suffix(raw: Optional[str]) -> str:
@@ -215,12 +293,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--stopword-filter", action="store_true", help="Strip a short list of stopwords during preprocessing.")
     parser.add_argument("--summarizer-model", default=DEFAULT_SUMMARY_MODEL, help="LLM for summarizing topics.")
     parser.add_argument("--suffix", help="Suffix appended to default filenames.")
+    parser.add_argument("--plot-umap", dest="plot_umap", action="store_true", default=True, help="Enable saving UMAP scatter plots.")
+    parser.add_argument("--no-plot-umap", dest="plot_umap", action="store_false", help="Skip UMAP plotting.")
     return parser
 
 
 def main(cli_args: Optional[Sequence[str]] = None) -> None:
     parser = build_parser()
     args = parser.parse_args(cli_args)
+    configure_logging()
 
     embedding_config, summarizer_config, input_path, output_path = build_pipeline_config(args)
     papers = load_papers(input_path)
@@ -236,6 +317,11 @@ def main(cli_args: Optional[Sequence[str]] = None) -> None:
 
     embeddings = embed_texts(preprocessed_texts, embedding_config)
     cluster_result = perform_clustering(embeddings, filtered, ClusterConfig())
+
+    if args.plot_umap:
+        _maybe_plot_umap(np.asarray(embeddings), cluster_result.labels, output_path.parent)
+    else:
+        LOGGER.info("UMAP plotting disabled.")
 
     clusters_payload, noise_ids = build_clusters_payload(cluster_result, filtered, summarizer_config)
     metadata = build_metadata(

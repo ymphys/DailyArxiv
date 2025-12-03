@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import re
 import time
 from dataclasses import dataclass
@@ -10,6 +11,8 @@ from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
+
+from logging_setup import configure_logging
 
 ASIA_SHANGHAI = ZoneInfo("Asia/Shanghai")
 DEFAULT_CATEGORIES = [
@@ -39,6 +42,9 @@ LISTING_DATE_PATTERN = re.compile(r"Showing new listings for (?P<date>.+)", re.I
 
 class ArxivFetchError(RuntimeError):
     """Raised when arXiv pages repeatedly fail."""
+
+
+LOGGER = logging.getLogger("dailyarxiv.fetch")
 
 
 @dataclass(frozen=True)
@@ -254,21 +260,22 @@ def main(cli_args: Optional[Sequence[str]] = None) -> None:
     parser = build_parser()
     args = parser.parse_args(cli_args)
     config = build_config(args)
+    configure_logging()
 
-    print(f"Fetching arXiv papers for {config.target_date.isoformat()} (UTC+8) ...")
+    LOGGER.info("Fetching arXiv papers for %s (UTC+8)", config.target_date.isoformat())
     if config.categories:
-        print(f"Categories: {', '.join(config.categories)}")
+        LOGGER.info("Categories: %s", ", ".join(config.categories))
     else:
-        print("Categories: all")
-    print(f"Max results: {config.max_results}")
+        LOGGER.info("Categories: all")
+    LOGGER.info("Max results: %s", config.max_results)
 
     try:
         output_path = run_with_config(config)
     except ArxivFetchError as exc:
-        print(f"Failed to fetch arXiv data: {exc}")
+        LOGGER.exception("Failed to fetch arXiv data.")
         raise SystemExit(1)
 
-    print(f"Saved {output_path}")
+    LOGGER.info("Saved %s", output_path)
 
 
 if __name__ == "__main__":

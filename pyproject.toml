@@ -16,4 +16,5 @@ dependencies = [
     "jinja2>=3.1.4",
     "tzdata>=2024.1", # Timezone data for Windows
     "umap-learn",
+    "matplotlib>=3.10.7",
 ]
