@@ -1,308 +1,258 @@
+#!/usr/bin/env python3
+"""Cluster arXiv papers with improved preprocessing, embeddings, and summarization."""
+
+from __future__ import annotations
+
 import argparse
 import json
-import os
-import random
+import logging
 import re
-from dataclasses import dataclass
+import sys
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
+from tqdm import tqdm
 
-RANDOM_SEED = 42
+from cluster import ClusterConfig, ClusterGroup, ClusterResult, perform_clustering
+from embed import DEFAULT_FALLBACK_MODEL, DEFAULT_CACHE, EmbeddingConfig, embed_texts
+from preprocess import preprocess_text
+from summarize import SummarizerConfig, summarize_cluster
+
 DEFAULT_INPUT_DIR = Path("data")
 DEFAULT_OUTPUT_DIR = Path("data")
 DEFAULT_BACKEND = "openai"
-DEFAULT_OPENAI_MODEL = "text-embedding-3-small"
-DEFAULT_HF_MODEL = "BAAI/bge-large-en"
+DEFAULT_SUMMARY_MODEL = "gpt-4o-mini"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-8s %(message)s",
+    stream=sys.stdout,
+)
+LOGGER = logging.getLogger("dailyarxiv.cluster_topics")
 
 
-@dataclass(frozen=True)
-class ClusterConfig:
-    date: str
-    input_path: Path
-    output_path: Path
-    backend: str
-    model: str
-    batch_size: int
-    min_cluster_size: int
-    device: Optional[str]
-    prefer_hdbscan: bool
-
-
-def set_global_seed(seed: int = RANDOM_SEED) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-
-
-def sanitize_suffix(raw_suffix: Optional[str]) -> str:
-    if not raw_suffix:
+def sanitize_suffix(raw: Optional[str]) -> str:
+    if not raw:
         return ""
-    sanitized = re.sub(r"[^a-zA-Z0-9._-]+", "-", raw_suffix.strip())
-    return sanitized.strip("-")
+    return re.sub(r"[^a-zA-Z0-9._-]+", "-", raw.strip()).strip("-")
 
 
-def resolve_input_path(raw: Optional[str], date_str: str, suffix: str) -> Path:
+def resolve_path(raw: Optional[str], date: str, prefix: str, default_dir: Path) -> Path:
     if raw:
-        path = Path(raw)
-        if path.is_dir():
-            filename = f"arxiv_{suffix + '_' if suffix else ''}{date_str}.json"
-            return path / filename
-        return path
-    filename = f"arxiv_{suffix + '_' if suffix else ''}{date_str}.json"
-    return DEFAULT_INPUT_DIR / filename
+        candidate = Path(raw)
+        if candidate.is_dir():
+            filename = f"{prefix}_{date}.json"
+            return candidate / filename
+        return candidate
+    return default_dir / f"{prefix}_{date}.json"
 
 
-def resolve_output_path(raw: Optional[str], date_str: str, suffix: str) -> Path:
-    if raw:
-        path = Path(raw)
-        if path.is_dir():
-            filename = f"clusters_{suffix + '_' if suffix else ''}{date_str}.json"
-            return path / filename
-        return path
-    filename = f"clusters_{suffix + '_' if suffix else ''}{date_str}.json"
-    return DEFAULT_OUTPUT_DIR / filename
-
-
-def load_papers(input_path: Path) -> List[Dict]:
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input file not found: {input_path}")
-    with input_path.open("r", encoding="utf-8") as fh:
+def load_papers(path: Path) -> List[dict]:
+    if not path.exists():
+        raise FileNotFoundError(f"Input file not found: {path}")
+    with path.open("r", encoding="utf-8") as fh:
         data = json.load(fh)
     if not isinstance(data, list):
-        raise ValueError("Input JSON must contain a list of papers.")
-    return data
+        raise ValueError("Input JSON must be a list of papers.")
+    return sorted(data, key=lambda p: p.get("id", ""))
 
 
-def embed_texts_openai(texts: Sequence[str], model: str, batch_size: int) -> List[List[float]]:
-    try:
-        from openai import OpenAI
-    except ImportError as exc:
-        raise ImportError("openai package is required for the OpenAI backend.") from exc
-
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY not set; required for OpenAI embedding backend.")
-
-    client = OpenAI(api_key=api_key)
-    embeddings: List[List[float]] = []
-
-    for idx in range(0, len(texts), batch_size):
-        batch = texts[idx : idx + batch_size]
-        response = client.embeddings.create(model=model, input=batch)
-        batch_embeddings = [item.embedding for item in response.data]
-        embeddings.extend(batch_embeddings)
-
-    return embeddings
-
-
-def resolve_device(requested: Optional[str]) -> str:
-    if requested and requested != "auto":
-        return requested
-    try:
-        import torch
-
-        return "cuda" if torch.cuda.is_available() else "cpu"
-    except ImportError:
-        return "cpu"
-
-
-def embed_texts_huggingface(texts: Sequence[str], model_name: str, device: Optional[str]) -> List[List[float]]:
-    try:
-        from sentence_transformers import SentenceTransformer
-    except ImportError as exc:
-        raise ImportError("sentence-transformers package is required for the huggingface backend.") from exc
-
-    resolved_device = resolve_device(device)
-    model = SentenceTransformer(model_name, device=resolved_device)
-    embeddings = model.encode(list(texts), batch_size=16, convert_to_numpy=True, show_progress_bar=True)
-    return embeddings.tolist()
-
-
-def embed_texts(
-    texts: Sequence[str],
-    backend: str,
-    model: str,
-    batch_size: int,
-    device: Optional[str],
-) -> List[List[float]]:
-    if backend == "openai":
-        return embed_texts_openai(texts, model, batch_size)
-    if backend == "huggingface":
-        return embed_texts_huggingface(texts, model, device)
-    raise ValueError(f"Unknown embedding backend: {backend}")
-
-
-def hdbscan_cluster(embeddings: np.ndarray, min_cluster_size: int) -> Tuple[np.ndarray, str]:
-    try:
-        import hdbscan
-    except ImportError as exc:
-        raise ImportError("hdbscan package not installed; required for HDBSCAN clustering.") from exc
-
-    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, metric="euclidean")
-    labels = clusterer.fit_predict(embeddings)
-    return labels, "hdbscan"
-
-
-def kmeans_cluster(embeddings: np.ndarray) -> Tuple[np.ndarray, str]:
-    from sklearn.cluster import KMeans
-    from sklearn.metrics import silhouette_score
-
-    n_samples = embeddings.shape[0]
-    max_k = min(20, n_samples - 1)
-    if max_k < 2:
-        labels = np.zeros(n_samples, dtype=int)
-        return labels, "kmeans"
-
-    best_score = -1.0
-    best_labels = None
-    for k in range(2, max_k + 1):
-        clusterer = KMeans(n_clusters=k, random_state=RANDOM_SEED, n_init="auto")
-        labels = clusterer.fit_predict(embeddings)
-        if len(set(labels)) == 1:
+def filter_papers(
+    papers: Sequence[dict],
+    remove_stopwords: bool,
+    min_chars: int = 300,
+    min_tokens: int = 50,
+) -> Tuple[List[dict], List[str], List[str]]:
+    kept: List[dict] = []
+    filtered_out: List[str] = []
+    texts: List[str] = []
+    for paper in tqdm(papers, desc="Filtering papers", unit="paper"):
+        abstract = paper.get("abstract", "") or ""
+        if len(abstract) < min_chars:
+            filtered_out.append(paper.get("id", "unknown"))
             continue
-        score = silhouette_score(embeddings, labels)
-        if score > best_score:
-            best_score = score
-            best_labels = labels
-
-    if best_labels is None:
-        best_labels = np.zeros(n_samples, dtype=int)
-
-    return best_labels, "kmeans"
-
-
-def cluster_embeddings(
-    embeddings: Sequence[Sequence[float]],
-    min_cluster_size: int,
-    prefer_hdbscan: bool = True,
-) -> Tuple[np.ndarray, str]:
-    array = np.asarray(embeddings, dtype=float)
-    if array.size == 0:
-        return np.array([], dtype=int), "none"
-
-    if prefer_hdbscan:
-        try:
-            return hdbscan_cluster(array, min_cluster_size)
-        except ImportError:
-            pass
-
-    return kmeans_cluster(array)
-
-
-def build_cluster_payload(
-    papers: Sequence[Dict],
-    embeddings: np.ndarray,
-    labels: np.ndarray,
-    min_cluster_size: int,
-) -> Tuple[Dict[str, Dict], List[str]]:
-    clusters: Dict[str, Dict] = {}
-    noise_ids: List[str] = []
-
-    for label in set(labels):
-        member_indices = np.where(labels == label)[0]
-        if label == -1 or len(member_indices) < min_cluster_size:
-            noise_ids.extend(papers[idx]["id"] for idx in member_indices)
+        if not re.search(r"[A-Za-z]", abstract):
+            filtered_out.append(paper.get("id", "unknown"))
             continue
-
-        paper_ids = [papers[idx]["id"] for idx in member_indices]
-        centroid = embeddings[member_indices].mean(axis=0).tolist()
-        cluster_name = f"cluster_{len(clusters) + 1}"
-        clusters[cluster_name] = {
-            "paper_ids": paper_ids,
-            "centroid_embedding": centroid,
-            "size": len(paper_ids),
-        }
-
-    return clusters, noise_ids
+        combined = f"{paper.get('title', '')}\n{abstract}"
+        processed = preprocess_text(combined, remove_stopwords=remove_stopwords)
+        if len(processed.split()) < min_tokens:
+            filtered_out.append(paper.get("id", "unknown"))
+            continue
+        kept.append(paper)
+        texts.append(processed)
+    return kept, filtered_out, texts
 
 
-def save_clusters(payload: Dict, output_path: Path) -> Path:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8") as fh:
-        json.dump(payload, fh, ensure_ascii=False, indent=2)
-    return output_path
-
-
-def build_config(args: argparse.Namespace) -> ClusterConfig:
+def build_pipeline_config(args: argparse.Namespace) -> Tuple[EmbeddingConfig, SummarizerConfig, Path, Path]:
     suffix = sanitize_suffix(args.suffix)
-    input_path = resolve_input_path(args.input_path, args.date, suffix)
-    output_path = resolve_output_path(args.output_path, args.date, suffix)
-    model = args.model or (DEFAULT_OPENAI_MODEL if args.backend == "openai" else DEFAULT_HF_MODEL)
+    input_prefix = f"arxiv_{suffix}" if suffix else "arxiv"
+    output_prefix = f"clusters_{suffix}" if suffix else "clusters"
+    input_path = resolve_path(args.input, args.date, input_prefix, DEFAULT_INPUT_DIR)
+    output_path = resolve_path(args.output, args.date, output_prefix, DEFAULT_OUTPUT_DIR)
 
-    return ClusterConfig(
-        date=args.date,
-        input_path=input_path,
-        output_path=output_path,
+    cache_path = Path(args.cache_dir) if args.cache_dir else DEFAULT_CACHE
+    if cache_path.is_dir():
+        cache_path = cache_path / "embeddings.db"
+    embedding_config = EmbeddingConfig(
         backend=args.backend,
-        model=model,
+        model=args.model,
         batch_size=args.batch_size,
-        min_cluster_size=args.min_cluster_size,
         device=args.device,
-        prefer_hdbscan=not args.force_kmeans,
+        cache_path=cache_path,
     )
+    summarizer_config = SummarizerConfig(model=args.summarizer_model)
+    return embedding_config, summarizer_config, input_path, output_path
 
 
-def process_clusters(config: ClusterConfig) -> Dict:
-    papers = load_papers(config.input_path)
-    if not papers:
-        raise ValueError("No papers found in the input file; cannot cluster.")
+def select_representatives(
+    group: ClusterGroup, probabilities: np.ndarray, papers: Sequence[dict], limit: int = 6
+) -> List[dict]:
+    if group.indices.size == 0:
+        return []
+    scores = probabilities[group.indices]
+    sorted_idx = group.indices[np.argsort(-scores)]
+    selected = sorted_idx[:limit]
+    representatives = []
+    for idx in selected:
+        paper = papers[int(idx)]
+        representatives.append(
+            {
+                "id": paper.get("id"),
+                "title": paper.get("title"),
+                "abstract": paper.get("abstract"),
+                "primary_category": paper.get("primary_category"),
+                "authors": paper.get("authors"),
+            }
+        )
+    return representatives
 
-    texts = [f"{paper.get('title', '')}\n{paper.get('abstract', '')}".strip() for paper in papers]
-    embeddings = embed_texts(texts, config.backend, config.model, config.batch_size, config.device)
-    labels, method = cluster_embeddings(embeddings, config.min_cluster_size, config.prefer_hdbscan)
 
-    clusters, noise_ids = build_cluster_payload(papers, np.asarray(embeddings), labels, config.min_cluster_size)
+def build_clusters_payload(
+    result: ClusterResult,
+    soft_papers: Sequence[dict],
+    summarizer_config: SummarizerConfig,
+) -> Tuple[List[dict], List[str]]:
+    clusters_payload: List[dict] = []
+    noise_ids = result.noise_ids
+    for idx, group in enumerate(tqdm(result.clusters, desc="Summarizing clusters", unit="cluster")):
+        reps = select_representatives(group, result.probabilities, soft_papers)
+        try:
+            summary = summarize_cluster(reps, summarizer_config)
+        except Exception as exc:
+            LOGGER.warning("LLM summary failed for cluster %d: %s", idx, exc)
+            summary = {"topic": "", "keywords": [], "description": ""}
 
-    payload = {
-        "metadata": {
-            "date": config.date,
-            "input": str(config.input_path),
-            "backend": config.backend,
-            "model": config.model,
-            "method": method,
-            "min_cluster_size": config.min_cluster_size,
-            "paper_count": len(papers),
-            "cluster_count": len(clusters),
-            "noise_count": len(noise_ids),
-        },
-        "clusters": clusters,
-        "noise": noise_ids,
+        cluster_papers = [soft_papers[int(i)] for i in group.indices]
+
+        clusters_payload.append(
+            {
+                "cluster_id": idx,
+                "size": group.size,
+                "rescued": group.rescued,
+                "topic": summary.get("topic", ""),
+                "keywords": summary.get("keywords", []),
+                "description": summary.get("description", ""),
+                "representatives": reps,
+                "papers": cluster_papers,
+            }
+        )
+    return clusters_payload, noise_ids
+
+
+def save_output(payload: dict, path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False, indent=2)
+    return path
+
+
+def resolve_model_name(embedding_config: EmbeddingConfig) -> str:
+    if embedding_config.model:
+        return embedding_config.model
+    if embedding_config.backend == "openai":
+        return "text-embedding-3-large"
+    return DEFAULT_FALLBACK_MODEL
+
+
+def build_metadata(
+    args: argparse.Namespace,
+    filtered_count: int,
+    input_count: int,
+    cluster_count: int,
+    noise_pre_filtered: int,
+    noise_hdbscan: int,
+    noise_rescued: int,
+    embedding_config: EmbeddingConfig,
+) -> dict:
+    return {
+        "date": args.date,
+        "model": resolve_model_name(embedding_config),
+        "summarizer_model": args.summarizer_model,
+        "paper_count_input": input_count,
+        "paper_count_filtered": filtered_count,
+        "paper_count_clustered": filtered_count,
+        "cluster_count": cluster_count,
+        "noise_pre_filtered": noise_pre_filtered,
+        "noise_hdbscan": noise_hdbscan,
+        "noise_rescued": noise_rescued,
+        "embedding_backend": embedding_config.backend,
+        "cache_path": str(embedding_config.cache_path),
     }
-
-    return payload
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Generate embeddings and topic clusters from arXiv JSON data.")
-    parser.add_argument("--date", required=True, help="Date string (YYYY-MM-DD) for the input/output naming.")
-    parser.add_argument("--input-path", help="Path to the Phase 1 JSON file or directory (defaults to data/arxiv_<date>.json).")
-    parser.add_argument("--output-path", help="Directory or file path for the cluster JSON (defaults to data/clusters_<date>.json).")
-    parser.add_argument("--backend", choices=["openai", "huggingface"], default=DEFAULT_BACKEND, help="Embedding backend to use.")
-    parser.add_argument("--model", help="Embedding model name; defaults to text-embedding-3-small or BAAI/bge-large-en.")
-    parser.add_argument("--batch-size", type=int, default=64, help="Batch size for embedding requests (OpenAI backend).")
-    parser.add_argument("--min-cluster-size", type=int, default=3, help="Minimum cluster size; smaller clusters become noise.")
-    parser.add_argument("--device", help="Device for HuggingFace models (cpu/cuda/auto).")
-    parser.add_argument("--force-kmeans", action="store_true", help="Use KMeans instead of HDBSCAN even if available.")
-    parser.add_argument("--suffix", help="Optional suffix for resolving default input/output filenames.")
+    parser = argparse.ArgumentParser(description="Cluster arXiv papers with a robust pipeline.")
+    parser.add_argument("--date", required=True, help="Date string for input/output files (YYYY-MM-DD).")
+    parser.add_argument("--input", help="Input JSON file or directory (default data/arxiv_<date>.json).")
+    parser.add_argument("--output", help="Output JSON file or directory (default data/clusters_<date>.json).")
+    parser.add_argument("--backend", choices=["openai", "huggingface"], default=DEFAULT_BACKEND)
+    parser.add_argument("--model", help="Embedding model (defaults to text-embedding-3-large or huggingface fallback).")
+    parser.add_argument("--batch-size", type=int, default=32, help="Batch size for embedding requests.")
+    parser.add_argument("--device", help="Device hint for HuggingFace embeddings (cpu/cuda/auto).")
+    parser.add_argument("--cache-dir", help="Directory for embedding cache (sqlite).")
+    parser.add_argument("--stopword-filter", action="store_true", help="Strip a short list of stopwords during preprocessing.")
+    parser.add_argument("--summarizer-model", default=DEFAULT_SUMMARY_MODEL, help="LLM for summarizing topics.")
+    parser.add_argument("--suffix", help="Suffix appended to default filenames.")
     return parser
 
 
 def main(cli_args: Optional[Sequence[str]] = None) -> None:
     parser = build_parser()
     args = parser.parse_args(cli_args)
-    set_global_seed()
-    config = build_config(args)
 
-    print(f"Loading papers from {config.input_path} ...")
-    print(f"Embedding backend: {config.backend} ({config.model})")
-    print(f"Clustering with min size {config.min_cluster_size} (HDBSCAN preferred: {config.prefer_hdbscan})")
+    embedding_config, summarizer_config, input_path, output_path = build_pipeline_config(args)
+    papers = load_papers(input_path)
+    input_count = len(papers)
+    LOGGER.info("Loaded %d papers from %s", input_count, input_path)
 
-    payload = process_clusters(config)
-    output_path = save_clusters(payload, config.output_path)
+    filtered, pre_filtered_ids, preprocessed_texts = filter_papers(papers, args.stopword_filter)
+    filtered_count = len(filtered)
+    LOGGER.info("Kept %d papers after filtering (removed %d).", filtered_count, len(pre_filtered_ids))
 
-    print(f"Clusters saved to {output_path}")
-    print(f"Clusters found: {payload['metadata']['cluster_count']}, noise papers: {payload['metadata']['noise_count']}")
+    if filtered_count == 0:
+        raise SystemExit("No papers remain after filtering; aborting.")
+
+    embeddings = embed_texts(preprocessed_texts, embedding_config)
+    cluster_result = perform_clustering(embeddings, filtered, ClusterConfig())
+
+    clusters_payload, noise_ids = build_clusters_payload(cluster_result, filtered, summarizer_config)
+    metadata = build_metadata(
+        args,
+        filtered_count,
+        input_count,
+        len(clusters_payload),
+        len(pre_filtered_ids),
+        len(noise_ids),
+        cluster_result.rescued_count,
+        embedding_config,
+    )
+
+    payload = {"metadata": metadata, "clusters": clusters_payload, "noise": noise_ids}
+    save_output(payload, output_path)
+    LOGGER.info("Saved %d clusters to %s", len(clusters_payload), output_path)
+    LOGGER.info("Noise papers (remaining): %d", len(noise_ids))
 
 
 if __name__ == "__main__":
