@@ -98,7 +98,7 @@ def _plot_umap_projection(
     return True
 
 
-def _maybe_plot_umap(embeddings: np.ndarray, labels: np.ndarray, output_dir: Path) -> None:
+def _maybe_plot_umap(embeddings: np.ndarray, labels: np.ndarray, output_dir: Path, date_label: str) -> None:
     if embeddings.size == 0:
         LOGGER.warning("No embeddings available for UMAP plotting.")
         return
@@ -107,7 +107,8 @@ def _maybe_plot_umap(embeddings: np.ndarray, labels: np.ndarray, output_dir: Pat
         projection = _compute_umap_projection(embeddings, dims)
         if projection is None:
             continue
-        _plot_umap_projection(projection, labels, output_dir / filename, dims)
+        output_file = output_dir / f"cluster_{date_label}_umap_{dims}d.png"
+        _plot_umap_projection(projection, labels, output_file, dims)
 
 
 def sanitize_suffix(raw: Optional[str]) -> str:
@@ -319,7 +320,7 @@ def main(cli_args: Optional[Sequence[str]] = None) -> None:
     cluster_result = perform_clustering(embeddings, filtered, ClusterConfig())
 
     if args.plot_umap:
-        _maybe_plot_umap(np.asarray(embeddings), cluster_result.labels, output_path.parent)
+        _maybe_plot_umap(np.asarray(embeddings), cluster_result.labels, output_path.parent, args.date)
     else:
         LOGGER.info("UMAP plotting disabled.")
 
