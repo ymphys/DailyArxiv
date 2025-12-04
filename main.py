@@ -4,7 +4,6 @@ import sys
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-import analyze_trends
 import cluster_topics
 import fetch_arxiv
 import generate_report
@@ -82,42 +81,16 @@ def build_summary_args(args: argparse.Namespace, suffix: str) -> List[str]:
     return cli_args
 
 
-def build_trend_args(args: argparse.Namespace, suffix: str, yesterday_suffix: str) -> List[str]:
-    yesterday = args.yesterday_date or (datetime.strptime(args.date, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
-    cli_args = ["--date", args.date, "--yesterday-date", yesterday]
-    if args.trend_today_clusters:
-        cli_args.extend(["--today-clusters", args.trend_today_clusters])
-    if args.trend_today_summaries:
-        cli_args.extend(["--today-summaries", args.trend_today_summaries])
-    if args.trend_today_papers:
-        cli_args.extend(["--today-papers", args.trend_today_papers])
-    if args.trend_yesterday_clusters:
-        cli_args.extend(["--yesterday-clusters", args.trend_yesterday_clusters])
-    if args.trend_yesterday_summaries:
-        cli_args.extend(["--yesterday-summaries", args.trend_yesterday_summaries])
-    if args.trend_yesterday_papers:
-        cli_args.extend(["--yesterday-papers", args.trend_yesterday_papers])
-    if args.trend_output_path:
-        cli_args.extend(["--output-path", args.trend_output_path])
-    if suffix:
-        cli_args.extend(["--suffix", suffix])
-    if yesterday_suffix:
-        cli_args.extend(["--yesterday-suffix", yesterday_suffix])
-    return cli_args
-
-
 def build_report_args(args: argparse.Namespace, suffix: str) -> List[str]:
     cli_args = ["--date", args.date]
     if args.report_cluster_summaries:
         cli_args.extend(["--cluster-summaries", args.report_cluster_summaries])
-    if args.report_trend_report:
-        cli_args.extend(["--trend-report", args.report_trend_report])
     if args.report_papers:
         cli_args.extend(["--papers", args.report_papers])
-    if args.report_template_dir:
-        cli_args.extend(["--template-dir", args.report_template_dir])
     if args.report_output:
         cli_args.extend(["--output", args.report_output])
+    if args.report_format:
+        cli_args.extend(["--format", args.report_format])
     if suffix:
         cli_args.extend(["--suffix", suffix])
     return cli_args
@@ -130,18 +103,16 @@ def run_phase(name: str, func, cli_args: List[str]) -> None:
 
 def main(argv: List[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        description="Daily arXiv pipeline orchestrator: fetch -> cluster -> summarize -> trends -> report."
+        description="Daily arXiv pipeline orchestrator: fetch -> cluster -> summarize -> report."
     )
     parser.add_argument("--date", default=datetime.now().strftime("%Y-%m-%d"), help="Target date for the workflow.")
     parser.add_argument("--yesterday-date", help="Override yesterday's date for comparison.")
     parser.add_argument("--run-suffix", help="Custom suffix inserted into default filenames (e.g., category tag).")
-    parser.add_argument("--yesterday-run-suffix", help="Suffix for yesterday's data (defaults to run suffix).")
 
     # Skip flags
     parser.add_argument("--skip-fetch", action="store_true")
     parser.add_argument("--skip-cluster", action="store_true")
     parser.add_argument("--skip-summary", action="store_true")
-    parser.add_argument("--skip-trend", action="store_true")
     parser.add_argument("--skip-report", action="store_true")
 
     # Fetch options
@@ -170,27 +141,17 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--summary-output-path", help="Override summary output path.")
 
     # Trend analysis paths
-    parser.add_argument("--trend-today-clusters", help="Override today's clusters path.")
-    parser.add_argument("--trend-today-summaries", help="Override today's summaries path.")
-    parser.add_argument("--trend-today-papers", help="Override today's papers path.")
-    parser.add_argument("--trend-yesterday-clusters", help="Override yesterday's clusters path.")
-    parser.add_argument("--trend-yesterday-summaries", help="Override yesterday's summaries path.")
-    parser.add_argument("--trend-yesterday-papers", help="Override yesterday's papers path.")
-    parser.add_argument("--trend-output-path", help="Override trend report output path.")
-
     # Report options
     parser.add_argument("--report-cluster-summaries", help="Override path to cluster summaries for report.")
-    parser.add_argument("--report-trend-report", help="Override path to trend report for report.")
     parser.add_argument("--report-papers", help="Override path to papers for report.")
-    parser.add_argument("--report-template-dir", help="Templates dir for report generation.")
     parser.add_argument("--report-output", help="Output directory/path for final reports.")
+    parser.add_argument("--report-format", choices=["markdown", "html"], default="markdown", help="Output format for report")
 
     args = parser.parse_args(argv)
 
     run_suffix = sanitize_suffix(args.run_suffix)
     if not run_suffix and args.categories:
         run_suffix = categories_to_suffix(args.categories)
-    yesterday_suffix = sanitize_suffix(args.yesterday_run_suffix) or run_suffix
 
     try:
         if not args.skip_fetch:
@@ -199,11 +160,9 @@ def main(argv: List[str] | None = None) -> None:
             run_phase("cluster_topics", cluster_topics.main, build_cluster_args(args, run_suffix))
         if not args.skip_summary:
             run_phase("summarize_clusters", summarize_clusters.main, build_summary_args(args, run_suffix))
-        if not args.skip_trend:
-            run_phase("analyze_trends", analyze_trends.main, build_trend_args(args, run_suffix, yesterday_suffix))
         if not args.skip_report:
             run_phase("generate_report", generate_report.main, build_report_args(args, run_suffix))
-    except SystemExit as exc:
+    except SystemExit:
         raise
     except Exception as exc:  # pylint: disable=broad-except
         print(f"Workflow failed: {exc}", file=sys.stderr)

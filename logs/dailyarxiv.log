@@ -210,3 +210,97 @@
 2025-12-04 13:27:15,043 INFO     httpx HTTP Request: POST https://api.deepseek.com/v1/chat/completions "HTTP/1.1 200 OK"
 2025-12-04 13:27:20,664 WARNING  dailyarxiv.summarize_clusters Subcluster summary failed: Expecting value: line 1 column 1 (char 0)
 2025-12-04 13:27:20,668 INFO     dailyarxiv.summarize_clusters Saved cluster summaries to data/cluster_summaries_2025-12-03.json
+2025-12-04 14:12:09,918 INFO     dailyarxiv.fetch Fetching arXiv papers for 2025-12-04 (UTC+8)
+2025-12-04 14:12:09,918 INFO     dailyarxiv.fetch Categories: astro-ph, cond-mat, gr-qc, hep-ex, hep-lat, hep-ph, hep-th, math-ph, nlin, nucl-ex, nucl-th, physics, quant-ph, math, cs, q-bio, q-fin, stat, eess, econ
+2025-12-04 14:12:09,918 INFO     dailyarxiv.fetch Max results: 3000
+2025-12-04 14:12:17,265 INFO     dailyarxiv.fetch Saved data/arxiv_2025-12-04.json
+2025-12-04 14:12:17,275 INFO     dailyarxiv.cluster_topics Loaded 2200 papers from data/arxiv_2025-12-04.json
+2025-12-04 14:12:17,436 INFO     dailyarxiv.cluster_topics Kept 2168 papers after filtering (removed 32).
+2025-12-04 14:12:17,494 INFO     dailyarxiv.embed Generating 2122 new embeddings...
+2025-12-04 14:12:19,035 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:20,895 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:21,687 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:23,228 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:24,650 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:26,325 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:27,116 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:28,710 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:29,333 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:30,030 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:30,697 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:31,764 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:32,641 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:33,748 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:34,480 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:35,327 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:36,043 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:37,046 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:37,586 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:38,211 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:39,005 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:39,886 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:40,985 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:42,569 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:43,234 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:44,010 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:44,742 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:45,412 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:46,142 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:46,863 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:47,392 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:48,349 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:50,128 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:51,100 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:51,873 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:53,125 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:53,804 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:54,601 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:55,608 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:56,468 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:57,024 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:58,954 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:12:59,762 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:00,608 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:01,843 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:02,705 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:03,805 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:04,621 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:05,672 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:06,994 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:07,597 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:08,577 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:09,465 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:10,460 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:11,381 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:12,751 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:13,626 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:14,596 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:15,496 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:16,455 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:17,315 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:18,008 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:18,840 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:19,618 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:20,503 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:21,708 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:22,449 INFO     httpx HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-12-04 14:13:24,169 INFO     dailyarxiv.cluster Target min_cluster_size=4
+2025-12-04 14:13:35,663 INFO     dailyarxiv.cluster HDBSCAN noise ratio: 0.01
+2025-12-04 14:13:43,101 INFO     dailyarxiv.cluster_topics Saved UMAP 2D plot to data/umap_2d.png
+2025-12-04 14:13:50,140 INFO     dailyarxiv.cluster_topics Saved UMAP 3D plot to data/umap_3d.png
+2025-12-04 14:13:52,382 INFO     httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-04 14:13:52,395 WARNING  dailyarxiv.summarize Failed to parse LLM summary; returning defaults.
+2025-12-04 14:13:55,081 INFO     httpx HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-04 14:13:55,100 WARNING  dailyarxiv.summarize Failed to parse LLM summary; returning defaults.
+2025-12-04 14:13:55,138 INFO     dailyarxiv.cluster_topics Saved 2 clusters to data/clusters_2025-12-04.json
+2025-12-04 14:13:55,138 INFO     dailyarxiv.cluster_topics Noise papers (remaining): 32
+2025-12-04 14:13:55,168 INFO     dailyarxiv.summarize_clusters Loading papers from data/arxiv_2025-12-04.json
+2025-12-04 14:13:55,168 INFO     dailyarxiv.summarize_clusters Reading clusters from data/clusters_2025-12-04.json
+2025-12-04 14:13:55,168 INFO     dailyarxiv.summarize_clusters Using model deepseek-chat with up to 16 parallel workers.
+2025-12-04 14:13:55,438 INFO     httpx HTTP Request: POST https://api.deepseek.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-04 14:13:55,461 INFO     httpx HTTP Request: POST https://api.deepseek.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-04 14:14:19,358 INFO     httpx HTTP Request: POST https://api.deepseek.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-04 14:14:24,157 INFO     httpx HTTP Request: POST https://api.deepseek.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-04 14:14:41,721 INFO     httpx HTTP Request: POST https://api.deepseek.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-04 14:14:48,518 INFO     httpx HTTP Request: POST https://api.deepseek.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-04 14:15:27,188 INFO     dailyarxiv.summarize_clusters Saved cluster summaries to data/cluster_summaries_2025-12-04.json
