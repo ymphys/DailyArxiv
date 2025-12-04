@@ -146,3 +146,20 @@ def embed_texts(texts: Sequence[str], config: EmbeddingConfig) -> List[List[floa
 
     conn.close()
     return [result or [] for result in results]
+
+
+def load_cached_embeddings(
+    texts: Sequence[str],
+    backend: str,
+    model: str,
+    cache_path: Path,
+) -> List[Optional[List[float]]]:
+    """Retrieve cached embeddings for the given texts, returning None when absent."""
+    conn = _ensure_cache(cache_path)
+    results: List[Optional[List[float]]] = []
+    for text in texts:
+        key = _hash_text(text, backend, model)
+        cached = _fetch_cached(conn, key)
+        results.append(cached)
+    conn.close()
+    return results

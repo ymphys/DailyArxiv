@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+import string
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -9,13 +10,19 @@ from pathlib import Path
 import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
+import numpy as np
+
+from embed import load_cached_embeddings
 from logging_setup import configure_logging
 from openai import OpenAI
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+from preprocess import preprocess_text
 
 DEFAULT_DATE = "today"
 DEFAULT_INPUT_DIR = Path("data")
 DEFAULT_OUTPUT_DIR = Path("data")
-DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_MODEL = "deepseek-chat"
 DEFAULT_MAX_PAPERS = 50
 DEFAULT_CHUNK_SIZE = 30
 DEFAULT_MAX_WORKERS = 16
@@ -52,6 +59,16 @@ AGGREGATE_PROMPT_TEMPLATE = """以下是同一主题簇的分块总结，请综�
 {chunks}
 """
 
+SUBCLUSTER_PROMPT_TEMPLATE = """你将收到一个子簇（subset）的论文摘要列表，请生成 JSON：
+{{
+  "title": "该子簇的简洁主题名称（3-5 个词）",
+  "summary": "2-3 句的描述，突出关键方向与贡献",
+  "keywords": ["最多 5 个关键词"]
+}}
+论文（按重要性排序）：
+{papers}
+"""
+
 
 @dataclass(frozen=True)
 class SummaryConfig:
@@ -64,14 +81,26 @@ class SummaryConfig:
     chunk_size: int
     max_workers: int
     temperature: float
+    enable_subclusters: bool
+
+
+@dataclass(frozen=True)
+class EmbeddingSource:
+    backend: str
+    model: str
+    cache_path: Path
+
+    def load(self, texts: Sequence[str]) -> List[Optional[List[float]]]:
+        return load_cached_embeddings(texts, self.backend, self.model, self.cache_path)
 
 
 class LLMClient:
     def __init__(self, model: str, temperature: float):
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = os.getenv("DEEPSEEK_API_KEY")
         if not api_key:
-            raise RuntimeError("OPENAI_API_KEY is not set; required for summarization.")
-        self.client = OpenAI(api_key=api_key)
+            raise RuntimeError("DEEPSEEK_API_KEY is not set; required for summarization.")
+        base_url = "https://api.deepseek.com/v1"
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
         self.temperature = temperature
 
@@ -135,6 +164,7 @@ def build_config(args: argparse.Namespace) -> SummaryConfig:
         chunk_size=args.chunk_size,
         max_workers=args.max_workers,
         temperature=args.temperature,
+        enable_subclusters=args.enable_subclusters,
     )
 
 
@@ -182,12 +212,110 @@ def parse_json_response(text: str) -> Dict:
         raise ValueError(f"LLM response is not valid JSON: {text}") from exc
 
 
+def _preprocess_for_embedding(paper: Dict) -> str:
+    combined = f"{paper.get('title', '')}\n{paper.get('abstract', '')}"
+    return preprocess_text(combined)
+
+
+def _load_cluster_embeddings(papers: Sequence[Dict], source: EmbeddingSource) -> Optional[np.ndarray]:
+    texts = [_preprocess_for_embedding(paper) for paper in papers]
+    cached = source.load(texts)
+    # If any embedding is missing, we cannot rely on the cache
+    if any(item is None for item in cached):
+        return None
+    return np.asarray(cached, dtype=float)
+
+
+def _attempt_kmeans_subclusters(embeddings: np.ndarray) -> Optional[np.ndarray]:
+    # Option A: Mini KMeans; lightweight and deterministic for local splits.
+    candidate_ks = [2]
+    if embeddings.shape[0] > 40:
+        candidate_ks.append(3)
+    for k in candidate_ks:
+        try:
+            clusterer = KMeans(n_clusters=k, random_state=42, n_init="auto")
+            labels = clusterer.fit_predict(embeddings)
+        except Exception:
+            continue
+        unique = set(labels)
+        if len(unique) < 2:
+            continue
+        score = silhouette_score(embeddings, labels)
+        if score >= 0.05:
+            return labels
+    return None
+
+
+def _summarize_subcluster(papers: Sequence[Dict], llm: LLMClient) -> Dict:
+    text_block = "\n\n".join(
+        f"- 标题: {paper.get('title')}\n  摘要: {paper.get('abstract')}"
+        for paper in papers[:6]
+    )
+    prompt = SUBCLUSTER_PROMPT_TEMPLATE.format(papers=text_block)
+    try:
+        response = llm.chat_completion(prompt)
+        summary = json.loads(response.strip())
+    except Exception as exc:
+        LOGGER.warning("Subcluster summary failed: %s", exc)
+        return {"title": "", "summary": "", "keywords": []}
+    keywords = summary.get("keywords", [])
+    if isinstance(keywords, str):
+        keywords = [kw.strip() for kw in keywords.split(",") if kw.strip()]
+    return {
+        "title": summary.get("title", ""),
+        "summary": summary.get("summary", ""),
+        "keywords": keywords[:5],
+    }
+
+
+def _build_subclusters(
+    cluster_name: str,
+    cluster_info: Dict,
+    papers: Sequence[Dict],
+    embedding_source: EmbeddingSource,
+    llm: LLMClient,
+    config: SummaryConfig,
+) -> List[Dict]:
+    if not config.enable_subclusters or len(papers) < 12:
+        return []
+
+    embeddings = _load_cluster_embeddings(papers, embedding_source)
+    if embeddings is None:
+        LOGGER.warning("Missing cached embeddings for %s; skipping subclusters.", cluster_name)
+        return []
+
+    labels = _attempt_kmeans_subclusters(embeddings)
+    if labels is None:
+        LOGGER.info("No reliable subclusters found for %s.", cluster_name)
+        return []
+
+    label_order = {label: idx for idx, label in enumerate(sorted(set(labels)))}
+    letters = string.ascii_uppercase
+    subclusters: List[Dict] = []
+    for label in sorted(set(labels)):
+        indices = [idx for idx, assigned in enumerate(labels) if assigned == label]
+        sub_papers = [papers[idx] for idx in indices]
+        summary = _summarize_subcluster(sub_papers, llm)
+        subclusters.append(
+            {
+                "subcluster_id": f"{cluster_info.get('cluster_id', cluster_name)}-{letters[label_order[label] % len(letters)]}",
+                "paper_count": len(sub_papers),
+                "keywords": summary.get("keywords", []),
+                "title": summary.get("title", ""),
+                "summary": summary.get("summary", ""),
+                "sample_papers": [paper.get("title") for paper in sub_papers[:3]],
+            }
+        )
+    return subclusters
+
+
 def summarize_cluster(
     cluster_name: str,
     cluster_info: Dict,
     paper_lookup: Dict[str, Dict],
     config: SummaryConfig,
     llm: LLMClient,
+    embedding_source: Optional[EmbeddingSource],
 ) -> Tuple[str, Dict]:
     explicit_papers = cluster_info.get("papers") or []
     if explicit_papers:
@@ -198,11 +326,16 @@ def summarize_cluster(
         papers = [paper_lookup[pid] for pid in selected_ids if pid in paper_lookup]
 
     if not papers:
-        return cluster_name, {
-            "size": 0,
+        empty = {
+            "cluster_id": cluster_info.get("cluster_id"),
+            "title": cluster_info.get("topic", cluster_name),
             "summary": "未找到对应论文数据，无法生成主题摘要。",
             "keywords": [],
+            "paper_count": 0,
+            "size": 0,
+            "subclusters": [],
         }
+        return cluster_name, empty
 
     paper_texts = [prepare_paper_text(paper) for paper in papers]
     chunks = chunk_list(paper_texts, config.chunk_size) or [paper_texts]
@@ -222,13 +355,23 @@ def summarize_cluster(
     if isinstance(keywords, str):
         keywords = [kw.strip() for kw in keywords.split(",") if kw.strip()]
 
+    subclusters = (
+        _build_subclusters(cluster_name, cluster_info, papers, embedding_source, llm, config)
+        if embedding_source and config.enable_subclusters
+        else []
+    )
+
     result = {
+        "cluster_id": cluster_info.get("cluster_id"),
+        "title": cluster_info.get("topic", cluster_name),
+        "summary": final_summary.get("summary", ""),
+        "keywords": keywords,
+        "paper_count": len(papers),
         "size": len(papers),
         "research_question": final_summary.get("research_question", ""),
         "methods": final_summary.get("methods", ""),
         "trends": final_summary.get("trends", ""),
-        "summary": final_summary.get("summary", ""),
-        "keywords": keywords,
+        "subclusters": subclusters,
     }
     return cluster_name, result
 
@@ -237,6 +380,13 @@ def process_clusters(config: SummaryConfig) -> Dict[str, Dict]:
     papers = load_json(config.papers_path)
     clusters_payload = load_json(config.clusters_path)
     clusters = clusters_payload.get("clusters", [])
+    metadata = clusters_payload.get("metadata", {})
+
+    embedding_source = EmbeddingSource(
+        backend=metadata.get("embedding_backend", "openai"),
+        model=metadata.get("model", DEFAULT_MODEL),
+        cache_path=Path(metadata.get("cache_path", ".cache/embeddings.db")),
+    )
 
     paper_lookup = {paper["id"]: paper for paper in papers}
     llm = LLMClient(config.model, config.temperature)
@@ -248,7 +398,15 @@ def process_clusters(config: SummaryConfig) -> Dict[str, Dict]:
             cluster_id = info.get("cluster_id")
             name = f"cluster_{cluster_id}" if cluster_id is not None else f"cluster_{idx}"
             futures.append(
-                executor.submit(summarize_cluster, name, info, paper_lookup, config, llm)
+                executor.submit(
+                    summarize_cluster,
+                    name,
+                    info,
+                    paper_lookup,
+                    config,
+                    llm,
+                    embedding_source,
+                )
             )
         for future in as_completed(futures):
             name, summary = future.result()
@@ -275,6 +433,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-workers", type=int, default=DEFAULT_MAX_WORKERS, help="Parallel workers for API calls.")
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE, help="Sampling temperature.")
     parser.add_argument("--suffix", help="Optional suffix for locating default files (e.g., category tag).")
+    parser.add_argument(
+        "--enable-subclusters",
+        action="store_true",
+        help="Enable local subcluster detection and summarization (requires cached embeddings).",
+    )
     return parser
 
 
